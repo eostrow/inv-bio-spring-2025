@@ -1,0 +1,172 @@
+---
+title: "BBIO 495 Phagocytosis and Experimental Evolution Results"
+output: html_notebook
+author: Elizabeth Ostrowski
+---
+
+You need to download from our Google Sheet the relevant worksheet as a .tsv (tab-separated values) data file.
+You need to replace the filepath below with the filepath to this data file on your computer.
+
+```{r}
+
+# Install the tidyverse package if you haven't done so previously
+# install.packages('tidyverse') # run this one time to install tidyvere package, which enables you to use ggplot functions
+
+# Load libraries
+library(tidyverse)
+library(cowplot)
+library(ggridges)
+
+```
+
+
+# Read in data
+```{r}
+in_data_plq_size = read.table("~/Dropbox/Teaching/2025 Spring 495/Analyses/combined_plaque_size.tsv", sep="\t", header=T)
+in_data_plq_num = read.table("~/Dropbox/Teaching/2025 Spring 495/Analyses/combined_plaque_number.tsv", sep="\t", header=T)
+in_evol_spore_num = read.table("~/Dropbox/Teaching/2025 Spring 495/Analyses/evol_exp_total_spores.tsv", sep="\t", header=T)
+
+# Fix column names
+names(in_data_plq_size) = c("group", "student_1", "student_2", "plate", "strain", "plaque_diam_pix", "plaque_diam_mm", "plaque_area", "exp_date", "image_date")
+
+# Filter improbable values
+max_plaque = 50
+min_plaque = 1
+plq_size_filt = in_data_plq_size %>% filter(plaque_diam_mm>min_plaque) %>% filter(plaque_diam_mm<max_plaque) %>% mutate(strain = fct_relevel(strain, "SBW25","Fuzzy", "Wrinkly", "Copycat", "Mucoid")) 
+
+# TO DO: pair groups and remove those where SBW25 did not show any plaques
+```
+
+
+Plaque Diameter Histograms
+```{r}
+ggplot(data=plq_size_filt, aes(fill=strain)) + geom_histogram(aes(plaque_diam_mm)) + facet_wrap(vars(strain))
+
+ggplot(data=plq_size_filt, aes(x =plaque_diam_mm, y = strain, fill = stat(x))) +
+  geom_density_ridges_gradient(scale = 2, rel_min_height = 0.01) +
+  scale_fill_viridis_c(name = "Plaque Diameter (mm)", option = "C") +
+  labs(title = 'Plaque Diameter (mm)') + xlab('"Plaque Diameter (mm)') + ylab('Strain')
+
+ggplot(data=plq_size_filt, aes(x = plaque_diam_mm, y = strain, fill = strain)) +
+  geom_density_ridges(aes(point_color = strain, point_fill = strain, point_shape = strain),
+    alpha = 0.5, point_alpha = 1, jittered_points = TRUE) + 
+  labs(title = 'Plaque Diameter (mm)') + xlab('"Plaque Diameter (mm)') + ylab('Strain')
+
+ggplot(data=plq_size_filt, aes(x = plaque_diam_mm, y = strain, fill = strain)) +
+  geom_density_ridges(alpha=0.5) +
+  labs(title = 'Plaque Diameter (mm)') + xlab('"Plaque Diameter (mm)') + ylab('Strain')
+
+```
+
+
+Plaque Area Histograms
+```{r}
+# Plaque Area
+ggplot(data=plq_size_filt, aes(fill=strain)) + geom_histogram(aes(plaque_area)) + facet_wrap(vars(strain))
+
+ggplot(data=plq_size_filt, aes(x =plaque_area, y = strain, fill = stat(x))) +
+  geom_density_ridges_gradient(scale = 2, rel_min_height = 0.01) +
+  scale_fill_viridis_c(name = "Plaque Area (mm^2)", option = "C") +
+  labs(title = 'Plaque Area (mm^2)') + xlab('"Plaque Area (mm^2)') + ylab('Strain')
+
+ggplot(data=plq_size_filt, aes(x = plaque_area, y = strain, fill = strain)) +
+  geom_density_ridges(alpha=0.5) +
+  labs(title = 'Plaque Area (mm^2)') + xlab('"Plaque Area (mm^2)') + ylab('Strain')
+
+```
+
+Summarise Plaque Size:
+Average in steps: first the plaques on each plate, then average the two plates together
+```{r}
+
+psize_per_plate = plq_size_filt %>% group_by(group, strain, plate) %>% summarise(mean_diam = mean(plaque_diam_mm), mean_area = mean(plaque_area))
+
+psize_per_group = psize_per_plate %>% group_by(group, strain) %>% summarise(mean_diam = mean(mean_diam), mean_area = mean(mean_area))
+
+# All data
+ggplot(data=plq_size_filt, aes(x=strain, y=plaque_area, col=strain)) + geom_boxplot(width=0.35,outlier.shape = NA) + geom_jitter(position=position_jitter(0.1),size=2, alpha=0.3)
+
+# Averaged across plates
+ggplot(data=psize_per_group, aes(x=strain, y=mean_diam, col=strain)) + geom_boxplot(width=0.35,outlier.shape = NA)+ geom_jitter(position=position_jitter(0.1),size=2) + ylab("Average Plaque Area (mm^2)")
+
+
+library(lme4)
+library(emmeans)
+library(lmerTest)
+
+mod = lmer(plaque_diam_mm ~ strain + (1|group)*(1|exp_date), data=plq_size_filt, contrasts=T )
+emmeans(mod, specs=trt.vs.ctrl ~ strain)
+
+summary(mod)
+anova(mod, test="Chisq")
+
+
+```
+
+Summarise Plaque Number
+```{r}
+
+in_data_plq_num$num_plaques = as.numeric(in_data_plq_num$num_plaques)
+plq_num_filt = in_data_plq_num %>% mutate(strain = fct_relevel(strain, "SBW25","Wrinkly", "Copycat", "Mucoid", "Fuzzy"))
+
+pnum_avg_across_plates = plq_num_filt %>% group_by(group, strain) %>% summarise(mean_plqs = mean(num_plaques, na.rm=T))
+
+ggplot(data=plq_num_filt, aes(x=strain,y=num_plaques, col=strain)) + geom_boxplot(outlier.shape = NA) + geom_jitter(position=position_jitter(0.2),size=2) + ylab('Number of Plaques') + ylab("Strain")
+
+ggplot(data=pnum_avg_across_plates, aes(x=strain,y=mean_plqs, col=strain)) + geom_boxplot(outlier.shape = NA) + geom_jitter(position=position_jitter(0.2),size=2) 
+
+ggplot(data=pnum_avg_across_plates, aes(x=strain, y=mean_plqs, col=strain)) + geom_boxplot(width=0.2,outlier.shape = NA) + geom_jitter(aes(fill=strain), position=position_jitter(0.2),size=2) + ylab("Mean Number of Plaques") + xlab("Strain") 
+
+```
+
+Statistics
+
+```{r}
+
+all_data = pnum_avg_across_plates %>% left_join(psize_per_plate, by=c("group", "strain"))
+
+ggplot(data=all_data, aes(x=mean_plqs, y=mean_area)) + geom_point() + xlab('Number of Plaques') + ylab('Plaque Area') + geom_smooth(method='lm')
+
+cor.test(all_data$mean_plqs, all_data$mean_area)
+
+
+mod_pnum = lmer(num_plaques ~ strain + (1|group)*(1|exp_date), data=plq_num_filt, contrasts=T )
+emmeans(mod_pnum, specs=trt.vs.ctrl ~ strain)
+
+summary(mod_pnum)
+anova(mod_pnum, test="Chisq")
+
+
+```
+
+Analyse Coevolution Experiment: Total Spores
+```{r}
+
+med_pop_size = in_evol_spore_num %>% group_by(round) %>% summarise(med_pop_size = median(total_spores))
+
+# Automated y-axis
+ggplot(data=in_evol_spore_num, col=factor(pop), group=pop) + geom_point(aes(x=round, y=total_spores,col=factor(pop), alpha=0.5)) + geom_line(aes(x=round, y=total_spores, col=factor(pop), alpha=0.5)) + ylab('Total Spores') + xlab('Evolution Round') + geom_point(data=med_pop_size, aes(x=round, y=med_pop_size), size=4)
+
+# cutting off y-axis limit
+ggplot(data=in_evol_spore_num, col=factor(pop), group=pop) + geom_point(aes(x=round, y=total_spores,col=factor(pop), alpha=0.5)) + geom_line(aes(x=round, y=total_spores, col=factor(pop), alpha=0.5)) + ylab('Total Spores') + xlab('Evolution Round') + geom_point(data=med_pop_size, aes(x=round, y=med_pop_size), size=4) + ylim(0,6e6)
+
+
+
+```
+
+```{r}
+
+ggplot(pnum_avg_across_plates, aes(x = strain, y = mean_plqs, group = student_1)) +
+  geom_line(alpha = 0.7, color = "gray") +
+  geom_point(size = 2) +
+  theme_minimal() +
+  labs(title = "Reaction Norm Plot",
+       x = "Condition",
+       y = "Response") +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major.x = element_blank()
+  )
+
+```
+
